@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Document</title>
+        <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+        <script src="https://cdn.jsdelivr.net/npm/js-confetti@latest/dist/js-confetti.browser.js"></script>
+        <style>
+            #canvas {
+                position: absolute;
+                top: 0;
+                left: 0;
+                z-index: 3;
+            }
+            #video {
+                position: absolute;
+                top: 0;
+                left: 0;
+            }
+            img {
+                position: absolute;
+                top: 0;
+                left: 0;
+                z-index: 2;
+                /* opacity: 0; */
+                opacity: 0.5;
+            }
+        </style>
+    </head>
+    <body>
+        <img src="/swift5.jpg" width="640" height="480" id="image">
+        <canvas id="canvas" width="640" height="480"></canvas>
+        <video id="video" width="640" height="480" autoplay></video>
+        <script>
+            // get access to webcam
+            // Create a detector.
+            var detector = null;
+            var user_angles = [];
+            var taylor_angles = [];
+            const video = document.getElementById("video");
+
+            var user_angle_similarity_buffer = []
+
+            // angles: 10 + 8 = right wrist to right elbow
+            //         8 + 6 = right elbow to right shoulder
+            //         9 + 7 = left wrist to left elbow
+            //         7 + 5 = left elbow to left shoulder
+
+            // angles: 16 + 14 = right ankle to right knee
+            //         14 + 12 = right knee to right hip
+            //         15 + 13 = left ankle to left knee
+            //         13 + 11 = left knee to left hip
+
+            // angles: 11 + 12 = right hip to left hip
+            //         5 + 6 = right shoulder to left shoulder
+
+            function getAngle(coordinate, origin) {
+                var result = Math.atan2(coordinate.y - origin.y, coordinate.x - origin.x);
+                return result;
+            }
+
+            function getCosineSimilarity(user_angles, taylor_angles) {
+                var sum = 0;
+                for (var i = 0; i < user_angles.length; i++) {
+                    sum += Math.cos(user_angles[i] - taylor_angles[i]);
+                }
+                return sum / user_angles.length;
+            }
+
+            async function getPoses () {
+                // get cosine sim of taylor
+                var taylor_poses = await detector.estimatePoses(document.querySelector("img"));
+                var poses = await detector.estimatePoses(video);
+
+                var user_angle_similarity_buffer_avg = 0;
+
+                if (user_angle_similarity_buffer.length > 20) {
+                    var in_valid_range = 0;
+                    // count number
+                    for (var i = 0; i < user_angle_similarity_buffer.length; i++) {
+                        if (user_angle_similarity_buffer[i] > 0.9) {
+                            in_valid_range++;
+                        }
+                    }
+                    if (in_valid_range > 15) {
+                        console.log("dance");
+                        var confetti = new JSConfetti({ target: 'canvas' });
+
+                        confetti.addConfetti();
+                        
+                        return;
+                    }
+                }
+
+                if (user_angle_similarity_buffer.length > 20) {
+                    user_angle_similarity_buffer.shift();
+                }
+
+                // get cosine sim of user
+                if (poses.length == 0) {
+                    requestAnimationFrame(getPoses);
+                    return;
+                }
+
+                var user_poses = poses[0].keypoints;
+
+                var canvas = document.getElementById("canvas");
+                var ctx = canvas.getContext("2d");
+                // clear canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // show user poses
+                user_poses.forEach(function (pose) {
+                    var x = pose.x;
+                    var y = pose.y;
+                    var score = pose.score;
+                    var name = pose.name;
+
+                    ctx.beginPath();
+                    ctx.arc(x, y, 5, 0, 2 * Math.PI);
+                    ctx.fillStyle = "red";
+                    ctx.fill();
+
+                    ctx.font = "20px Arial";
+                    ctx.fillStyle = "white";
+                    ctx.fillText(name, x, y);
+
+                });
+
+                var taylor_poses = taylor_poses[0].keypoints;
+
+                // get angles
+                var user_angles = [];
+
+                // right arm
+                user_angles.push(getAngle(user_poses[10], user_poses[8]));
+                user_angles.push(getAngle(user_poses[8], user_poses[6]));
+                user_angles.push(getAngle(user_poses[9], user_poses[7]));
+                user_angles.push(getAngle(user_poses[7], user_poses[5]));
+
+                user_angles.push(getAngle(user_poses[16], user_poses[14]));
+                user_angles.push(getAngle(user_poses[14], user_poses[12]));
+                user_angles.push(getAngle(user_poses[15], user_poses[13]));
+                user_angles.push(getAngle(user_poses[13], user_poses[11]));
+
+                user_angles.push(getAngle(user_poses[11], user_poses[12]));
+                user_angles.push(getAngle(user_poses[5], user_poses[6]));
+
+                var taylor_angles = [];
+
+                taylor_angles.push(getAngle(taylor_poses[10], taylor_poses[8]));
+                taylor_angles.push(getAngle(taylor_poses[8], taylor_poses[6]));
+                taylor_angles.push(getAngle(taylor_poses[9], taylor_poses[7]));
+                taylor_angles.push(getAngle(taylor_poses[7], taylor_poses[5]));
+
+                taylor_angles.push(getAngle(taylor_poses[16], taylor_poses[14]));
+                taylor_angles.push(getAngle(taylor_poses[14], taylor_poses[12]));
+                taylor_angles.push(getAngle(taylor_poses[15], taylor_poses[13]));
+                taylor_angles.push(getAngle(taylor_poses[13], taylor_poses[11]));
+
+                taylor_angles.push(getAngle(taylor_poses[11], taylor_poses[12]));
+                taylor_angles.push(getAngle(taylor_poses[5], taylor_poses[6]));
+
+                // get cosine sim
+                var cosine_sim = getCosineSimilarity(user_angles, taylor_angles);
+
+                console.log(cosine_sim);
+
+                user_angle_similarity_buffer.push(cosine_sim);
+
+                requestAnimationFrame(getPoses);
+            }
+
+            navigator.mediaDevices.getUserMedia({video: true})
+                .then(function(stream) {
+                    // flip video horizontally
+                    video.style.transform = "scaleX(-1)";
+                    video.srcObject = stream;
+                    video.onloadedmetadata = async function(e) {
+                        video.play();
+                        // Create a detector.
+                        detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+
+                        // // get cosine sim of taylor
+                        // var taylor_poses = await detector.estimatePoses(document.querySelector("img"));
+                        
+                        // console.log("detector created");
+                        getPoses();
+                    };
+                })
+                .catch(function(err) {
+                    console.log("An error occurred! " + err);
+                });
+        </script>
+    </body>
+</html>
